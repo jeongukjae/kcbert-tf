@@ -43,10 +43,9 @@ class BertConfig:
 
         return BertConfig(**file_content)
 
-
 class BertModel(tf.keras.Model):
-    def __init__(self, config: BertConfig):
-        super().__init__()
+    def __init__(self, config: BertConfig, **kwargs):
+        super().__init__(**kwargs)
 
         # embedding layer
         self.token_embeddings = tf.keras.layers.Embedding(
@@ -92,16 +91,17 @@ class BertModel(tf.keras.Model):
         attention_mask = inputs['input_mask']
         token_type_ids = inputs['input_type_ids']
 
-        position_ids = tf.range(tf.shape(input_ids)[-1], dtype=input_ids.dtype)[tf.newaxis, :]
-        words_embeddings = self.token_embeddings(input_ids)
-        token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        position_embeddings = self.position_embeddings(position_ids)
+        with tf.name_scope("embedding"):
+            position_ids = tf.range(tf.shape(input_ids)[-1], dtype=input_ids.dtype)[tf.newaxis, :]
+            words_embeddings = self.token_embeddings(input_ids)
+            token_type_embeddings = self.token_type_embeddings(token_type_ids)
+            position_embeddings = self.position_embeddings(position_ids)
+
+            embeddings = words_embeddings + token_type_embeddings + position_embeddings
+            embeddings = self.embedding_layer_norm(embeddings)
+            hidden_states = self.dropout(embeddings)
 
         attention_mask = (1.0 - attention_mask[:, tf.newaxis, tf.newaxis, :]) * -10000
-
-        embeddings = words_embeddings + token_type_embeddings + position_embeddings
-        embeddings = self.embedding_layer_norm(embeddings)
-        hidden_states = self.dropout(embeddings)
 
         for encoder in self.encoders:
             hidden_states = encoder(hidden_states, attention_mask)
@@ -149,6 +149,7 @@ class TransformerEncoder(tf.keras.layers.Layer):
             epsilon=config.layer_norm_eps,
             axis=-1,
             name="intermediate_layer_norm",
+            dtype='float32'
         )
 
         self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
@@ -158,41 +159,45 @@ class TransformerEncoder(tf.keras.layers.Layer):
         self.scaling_factor = float(self.head_size) ** -0.5
         self.hidden_size = config.hidden_size
 
-    def call(self, sequence, attention_mask):
+    def call(self, sequence, mask=None):
         # multihead attention
-        attention = self._multihead_attention(sequence, attention_mask)
+        attention = self._multihead_attention(sequence, mask)
         # add and norm
         attention = self.attention_layer_norm(attention + sequence)
         # fc
-        intermediate = self.intermediate_dense(attention)
-        intermediate = self.dropout(self.intermediate_dense2(intermediate))
+        with tf.name_scope('intermediate'):
+            intermediate = self.intermediate_dense(attention)
+            intermediate = self.dropout(self.intermediate_dense2(intermediate))
         # add and norm
         intermediate = self.intermediate_layer_norm(intermediate + attention)
         return intermediate
 
-    def _multihead_attention(self, sequence, attention_mask):
-        q, k, v = tf.split(self.qkv(sequence), num_or_size_splits=3, axis=-1)
+    def _multihead_attention(self, sequence, mask):
+        with tf.name_scope("multihead_attention"):
+            q, k, v = tf.split(self.qkv(sequence), num_or_size_splits=3, axis=-1)
 
-        q = self._reshape_qkv(q)
-        k = self._reshape_qkv(k)
-        v = self._reshape_qkv(v)
+            with tf.name_scope("attention"):
+                q = self._reshape_qkv(q)
+                k = self._reshape_qkv(k)
+                v = self._reshape_qkv(v)
 
-        # calculate attention
-        attention = tf.matmul(q, k, transpose_b=True)
-        attention *= self.scaling_factor
-        attention += attention_mask
-        attention = tf.keras.layers.Softmax(axis=-1, dtype='float32')(attention)
-        attention = self.dropout(attention)
-        attention = tf.matmul(attention, v)
+                # calculate attention
+                attention = tf.matmul(q, k, transpose_b=True)
+                attention *= self.scaling_factor
+                if mask is not None:
+                    attention += mask
+                attention = tf.keras.layers.Softmax(axis=-1, dtype='float32')(attention)
+                attention = self.dropout(attention)
+                attention = tf.matmul(attention, v)
 
-        # concat
-        attention = tf.transpose(attention, perm=[0, 2, 1, 3])
-        attention = tf.reshape(attention, [-1, tf.shape(attention)[1], self.hidden_size])
+                # concat
+                attention = tf.transpose(attention, perm=[0, 2, 1, 3])
+                attention = tf.reshape(attention, [-1, tf.shape(attention)[1], self.hidden_size])
 
-        # last dense net
-        attention = self.attention_dense(attention)
-        attention = self.dropout(attention)
-        return attention
+            # last dense net
+            attention = self.attention_dense(attention)
+            attention = self.dropout(attention)
+            return attention
 
     def _reshape_qkv(self, val):
         new_shape = [-1, tf.shape(val)[1], self.num_head, self.head_size]

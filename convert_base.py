@@ -71,7 +71,6 @@ model.pooler_layer.set_weights([
 tf.saved_model.save(model, 'kcbert-base/model/0')
 
 to_export = tf.Module()
-
 tokenizer = text.BertTokenizer('./kcbert-base/vocab.txt')
 cls_id = 2
 sep_id = 3
