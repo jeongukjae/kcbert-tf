@@ -1,0 +1,5 @@
+transformers~=3.0.1
+torch==1.5.1
+tensorflow
+tensorflow-text
+tensorflow-hub
