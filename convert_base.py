@@ -20,7 +20,7 @@ model = BertModel(config)
 model(
     {
         "input_word_ids": tf.keras.Input(shape=[None], dtype=tf.int64),
-        "input_mask": tf.keras.Input(shape=[None], dtype=tf.float32),
+        "input_mask": tf.keras.Input(shape=[None], dtype=tf.int64),
         "input_type_ids": tf.keras.Input(shape=[None], dtype=tf.int64),
     }
 )
@@ -89,7 +89,7 @@ def call(input_tensor, seq_length):
         tokenized,
         fn_output_signature=tf.RaggedTensorSpec([None], tf.int64),
     )
-    input_mask = tf.ones_like(input_word_ids, dtype=tf.float32)
+    input_mask = tf.ones_like(input_word_ids, dtype=tf.int64)
     input_type_ids = tf.zeros_like(input_word_ids, dtype=tf.int64)
 
     return {
@@ -118,7 +118,7 @@ def call_2(input_tensor, seq_length):
         input_word_ids = tf.concat(
             [[cls_id], a[:a_len], [sep_id], b, [sep_id]], axis=0
         )
-        input_mask = tf.ones_like(input_word_ids, dtype=tf.float32)
+        input_mask = tf.ones_like(input_word_ids, dtype=tf.int64)
         input_type_ids = tf.ragged.row_splits_to_segment_ids(
             [0, a_len + 2, tf.size(input_word_ids)]
         )
@@ -130,7 +130,7 @@ def call_2(input_tensor, seq_length):
         [segment_a, segment_b],
         fn_output_signature=(
             tf.RaggedTensorSpec([None], tf.int64),
-            tf.RaggedTensorSpec([None], tf.float32),
+            tf.RaggedTensorSpec([None], tf.int64),
             tf.RaggedTensorSpec([None], tf.int64),
         ),
     )

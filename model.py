@@ -88,7 +88,7 @@ class BertModel(tf.keras.Model):
 
     def call(self, inputs):
         input_ids = inputs['input_word_ids']
-        attention_mask = inputs['input_mask']
+        attention_mask = tf.cast(inputs['input_mask'], self.dtype)
         token_type_ids = inputs['input_type_ids']
 
         with tf.name_scope("embedding"):
